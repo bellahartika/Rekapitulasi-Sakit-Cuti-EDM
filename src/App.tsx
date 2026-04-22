@@ -3,13 +3,14 @@ import { useState, useCallback } from "react";
 const SICK_KEYWORDS = ["sakit", "sick"];
 const LEAVE_KEYWORDS = ["cuti", "leave", "annual leave", "izin"];
 
-function norm(s) {
+function norm(s: string) {
   return (s || "").toLowerCase().trim();
 }
-function isSick(wm) {
+function isSick(wm: string) {
   return SICK_KEYWORDS.some((k) => norm(wm).includes(k));
 }
-function isLeave(wm) {
+function isLeave(wm: string) {
+
   return LEAVE_KEYWORDS.some((k) => norm(wm).includes(k));
 }
 
