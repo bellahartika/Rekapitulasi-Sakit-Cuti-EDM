@@ -4,44 +4,31 @@ import { useState, useCallback } from "react";
 const SICK_KEYWORDS = ["sakit", "sick"];
 const LEAVE_KEYWORDS = ["cuti", "leave", "annual leave", "izin"];
 
-function norm(s: string) {
-  return (s || "").toLowerCase().trim();
+function normalize(str) {
+  return (str || "").toLowerCase().trim();
 }
-function isSick(wm: string) {
-  return SICK_KEYWORDS.some((k) => norm(wm).includes(k));
+function isSick(work_mode) {
+  return SICK_KEYWORDS.some((k) => normalize(work_mode).includes(k));
 }
-function isLeave(wm: string) {
-
-  return LEAVE_KEYWORDS.some((k) => norm(wm).includes(k));
+function isLeave(work_mode) {
+  return LEAVE_KEYWORDS.some((k) => normalize(work_mode).includes(k));
 }
 
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
-  const headers = lines[0]
-    .split(",")
-    .map((h) =>
-      h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/ /g, "_")
-    );
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase().replace(/ /g, "_"));
   return lines.slice(1).map((line) => {
     const cols = [];
-    let cur = "",
-      inQ = false;
+    let cur = "", inQ = false;
     for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') {
-        inQ = !inQ;
-      } else if (line[i] === "," && !inQ) {
-        cols.push(cur.trim());
-        cur = "";
-      } else {
-        cur += line[i];
-      }
+      if (line[i] === '"') { inQ = !inQ; }
+      else if (line[i] === "," && !inQ) { cols.push(cur.trim()); cur = ""; }
+      else { cur += line[i]; }
     }
     cols.push(cur.trim());
     const obj = {};
-    headers.forEach((h, i) => {
-      obj[h] = (cols[i] || "").replace(/^"|"$/g, "");
-    });
+    headers.forEach((h, i) => { obj[h] = (cols[i] || "").replace(/^"|"$/g, ""); });
     return obj;
   });
 }
@@ -51,33 +38,16 @@ function formatDate(row) {
   const m = row.month || (row.date || "").split("-")[1] || "";
   const y = row.year || (row.date || "").split("-")[0] || "";
   if (row.date && !row.day) return row.date;
-  if (d && m && y)
-    return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+  if (d && m && y) return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
   return row.date || "-";
 }
 
 const DUMMY = [
-  {
-    user: "Andi Pratama",
-    sick: ["05/01/2025", "06/01/2025"],
-    leave: ["20/01/2025", "21/01/2025", "22/01/2025"],
-  },
+  { user: "Andi Pratama", sick: ["05/01/2025", "06/01/2025"], leave: ["20/01/2025", "21/01/2025", "22/01/2025"] },
   { user: "Sari Dewi", sick: ["10/02/2025"], leave: ["14/02/2025"] },
-  {
-    user: "Budi Santoso",
-    sick: ["03/03/2025", "04/03/2025", "05/03/2025"],
-    leave: [],
-  },
-  {
-    user: "Rina Kusuma",
-    sick: [],
-    leave: ["17/04/2025", "18/04/2025", "19/04/2025", "20/04/2025"],
-  },
-  {
-    user: "Deni Wahyu",
-    sick: ["22/05/2025"],
-    leave: ["01/06/2025", "02/06/2025"],
-  },
+  { user: "Budi Santoso", sick: ["03/03/2025", "04/03/2025", "05/03/2025"], leave: [] },
+  { user: "Rina Kusuma", sick: [], leave: ["17/04/2025", "18/04/2025", "19/04/2025", "20/04/2025"] },
+  { user: "Deni Wahyu", sick: ["22/05/2025"], leave: ["01/06/2025", "02/06/2025"] },
 ];
 
 export default function App() {
@@ -87,6 +57,8 @@ export default function App() {
   const [isDummy, setIsDummy] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [exportMsg, setExportMsg] = useState("");
+  const [sortKey, setSortKey] = useState(null); // null | "sick" | "leave"
+  const [sortDir, setSortDir] = useState("desc"); // "desc" | "asc"
 
   const processFile = (file) => {
     const reader = new FileReader();
@@ -101,13 +73,12 @@ export default function App() {
         if (isSick(wm)) map[user].sick.push(dt);
         else if (isLeave(wm)) map[user].leave.push(dt);
       });
-      const result = Object.values(map).filter(
-        (u) => u.sick.length > 0 || u.leave.length > 0
-      );
+      const result = Object.values(map).filter((u) => u.sick.length > 0 || u.leave.length > 0);
       setSummary(result);
       setIsDummy(false);
       setExpandedUser(null);
       setSearch("");
+      setSortKey(null);
     };
     reader.readAsText(file);
   };
@@ -118,52 +89,75 @@ export default function App() {
     if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
   }, []);
 
-  const filtered = summary.filter((u) =>
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
+
+  let filtered = summary.filter((u) =>
     u.user.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (sortKey) {
+    filtered = [...filtered].sort((a, b) => {
+      const diff = a[sortKey].length - b[sortKey].length;
+      return sortDir === "desc" ? -diff : diff;
+    });
+  }
+
   const totalSakit = filtered.reduce((a, u) => a + u.sick.length, 0);
   const totalCuti = filtered.reduce((a, u) => a + u.leave.length, 0);
 
   const exportCSV = () => {
     const rows = [
       ["Nama", "Total Sakit", "Total Cuti", "Tanggal Sakit", "Tanggal Cuti"],
-      ...filtered.map((u) => [
-        u.user,
-        u.sick.length,
-        u.leave.length,
-        u.sick.join("; "),
-        u.leave.join("; "),
-      ]),
+      ...filtered.map((u) => [u.user, u.sick.length, u.leave.length, u.sick.join("; "), u.leave.join("; ")]),
     ];
-    const csv =
-      "\uFEFF" +
-      rows
-        .map((r) =>
-          r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")
-        )
-        .join("\n");
+    const csv = "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = "rekap_sakit_cuti.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.href = url; a.download = "rekap_sakit_cuti.csv";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
     setExportMsg("✓ CSV berhasil didownload!");
     setTimeout(() => setExportMsg(""), 3000);
   };
 
+  const SortBtn = ({ colKey, label, color }) => {
+    const active = sortKey === colKey;
+    const icon = !active ? "↕" : sortDir === "desc" ? "↓" : "↑";
+    return (
+      <button
+        onClick={() => handleSort(colKey)}
+        style={{
+          background: active ? `${color}18` : "none",
+          border: `1px solid ${active ? color + "55" : "#2a2d3a"}`,
+          color: active ? color : "#4a4f6a",
+          padding: "5px 12px",
+          borderRadius: 6,
+          cursor: "pointer",
+          fontFamily: "'DM Mono', monospace",
+          fontSize: 11,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          transition: "all 0.15s",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span>{icon}</span>
+        <span>{label}</span>
+      </button>
+    );
+  };
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0f1117",
-        fontFamily: "'DM Mono', monospace",
-        color: "#e8e6df",
-      }}
-    >
+    <div style={{ minHeight: "100vh", background: "#0f1117", fontFamily: "'DM Mono', monospace", color: "#e8e6df" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -175,7 +169,7 @@ export default function App() {
         .drop-zone { border:1.5px dashed #2e3140; border-radius:10px; padding:10px 18px; display:flex; align-items:center; gap:10px; cursor:pointer; transition:all 0.2s; background:#13161f; }
         .drop-zone:hover, .drop-zone.drag-on { border-color:#6ee7b7; background:#14211d; }
         .stat-card { background:#13161f; border:1px solid #1e2130; border-radius:12px; padding:16px 20px; }
-        .search-box { background:#13161f; border:1px solid #1e2130; color:#e8e6df; padding:9px 14px; border-radius:8px; font-family:'DM Mono',monospace; font-size:13px; outline:none; width:100%; max-width:280px; transition:border-color 0.2s; }
+        .search-box { background:#13161f; border:1px solid #1e2130; color:#e8e6df; padding:9px 14px; border-radius:8px; font-family:'DM Mono',monospace; font-size:13px; outline:none; transition:border-color 0.2s; flex:1; min-width:160px; max-width:260px; }
         .search-box:focus { border-color:#6ee7b7; }
         .user-row { background:#13161f; border:1px solid #1e2130; border-radius:10px; cursor:pointer; transition:border-color 0.2s; }
         .user-row:hover { border-color:#2e3150; }
@@ -186,7 +180,9 @@ export default function App() {
         .btn-export { background:#6ee7b718; border:1px solid #6ee7b740; color:#6ee7b7; padding:8px 14px; border-radius:8px; cursor:pointer; font-family:'DM Mono',monospace; font-size:11px; transition:background 0.2s; white-space:nowrap; }
         .btn-export:hover { background:#6ee7b730; }
         .dummy-pill { background:#1a1f2e; border:1px solid #2a3050; border-radius:6px; padding:8px 14px; font-size:11px; color:#6272a4; display:flex; align-items:center; gap:8px; margin-bottom:18px; }
-        .export-toast { position:fixed; bottom:24px; right:24px; background:#14211d; border:1px solid #6ee7b755; color:#6ee7b7; padding:10px 18px; border-radius:8px; font-size:12px; z-index:999; animation: fadeIn 0.3s ease; }
+        .export-toast { position:fixed; bottom:24px; right:24px; background:#14211d; border:1px solid #6ee7b755; color:#6ee7b7; padding:10px 18px; border-radius:8px; font-size:12px; z-index:999; animation:fadeIn 0.3s ease; }
+        .reset-btn { background:none; border:1px solid #2a2d3a; color:#4a4f6a; padding:5px 10px; border-radius:6px; cursor:pointer; font-family:'DM Mono',monospace; font-size:10px; transition:all 0.2s; }
+        .reset-btn:hover { border-color:#6ee7b7; color:#6ee7b7; }
         @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
@@ -194,63 +190,23 @@ export default function App() {
 
       {/* Header */}
       <div style={{ borderBottom: "1px solid #1a1d2a", padding: "20px 28px" }}>
-        <div
-          style={{
-            maxWidth: 880,
-            margin: "0 auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
+        <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <span
-              style={{
-                fontFamily: "'Syne',sans-serif",
-                fontWeight: 800,
-                fontSize: "clamp(20px,4vw,38px)",
-                letterSpacing: -2,
-                lineHeight: 1,
-              }}
-            >
-              REKAP
-            </span>
+            <span style={{ fontFamily: "'Syne',sans-serif", fontWeight: 800, fontSize: "clamp(20px,4vw,38px)", letterSpacing: -2, lineHeight: 1 }}>REKAP</span>
             <div style={{ display: "flex", gap: 6 }}>
               <span className="badge badge-sick">⬤ SAKIT</span>
               <span className="badge badge-leave">⬤ CUTI</span>
             </div>
           </div>
           <label htmlFor="csvFile" style={{ cursor: "pointer" }}>
-            <div
-              className={`drop-zone${dragging ? " drag-on" : ""}`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragging(true);
-              }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={onDrop}
-            >
+            <div className={`drop-zone${dragging ? " drag-on" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop}>
               <span style={{ fontSize: 20 }}>📂</span>
               <div>
-                <div style={{ fontSize: 12, color: "#6ee7b7" }}>
-                  {isDummy ? "Upload CSV kamu" : "Ganti CSV"}
-                </div>
-                <div style={{ fontSize: 10, color: "#4a4f6a" }}>
-                  drag & drop atau klik
-                </div>
+                <div style={{ fontSize: 12, color: "#6ee7b7" }}>{isDummy ? "Upload CSV kamu" : "Ganti CSV"}</div>
+                <div style={{ fontSize: 10, color: "#4a4f6a" }}>drag & drop atau klik</div>
               </div>
             </div>
-            <input
-              id="csvFile"
-              type="file"
-              accept=".csv"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                if (e.target.files[0]) processFile(e.target.files[0]);
-              }}
-            />
+            <input id="csvFile" type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => { if (e.target.files[0]) processFile(e.target.files[0]); }} />
           </label>
         </div>
       </div>
@@ -259,199 +215,78 @@ export default function App() {
         {isDummy && (
           <div className="dummy-pill">
             <span>👁</span>
-            <span>
-              Menampilkan{" "}
-              <strong style={{ color: "#8892b0" }}>data contoh</strong> — upload
-              CSV kamu untuk melihat data asli
-            </span>
+            <span>Menampilkan <strong style={{ color: "#8892b0" }}>data contoh</strong> — upload CSV kamu untuk melihat data asli</span>
           </div>
         )}
 
         {/* Stats */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(130px,1fr))",
-            gap: 10,
-            marginBottom: 18,
-          }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px,1fr))", gap: 10, marginBottom: 14 }}>
           {[
             { label: "KARYAWAN", value: filtered.length, color: "#e8e6df" },
             { label: "HARI SAKIT", value: totalSakit, color: "#f87171" },
             { label: "HARI CUTI", value: totalCuti, color: "#60a5fa" },
           ].map((s) => (
             <div key={s.label} className="stat-card">
-              <div
-                style={{
-                  fontFamily: "'Syne',sans-serif",
-                  fontSize: 28,
-                  fontWeight: 800,
-                  color: s.color,
-                }}
-              >
-                {s.value}
-              </div>
-              <div
-                style={{
-                  color: "#4a4f6a",
-                  fontSize: 10,
-                  marginTop: 2,
-                  letterSpacing: "0.6px",
-                }}
-              >
-                {s.label}
-              </div>
+              <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 28, fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ color: "#4a4f6a", fontSize: 10, marginTop: 2, letterSpacing: "0.6px" }}>{s.label}</div>
             </div>
           ))}
-          <div
-            className="stat-card"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <button className="btn-export" onClick={exportCSV}>
-              ↓ Export CSV
-            </button>
+          <div className="stat-card" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button className="btn-export" onClick={exportCSV}>↓ Export CSV</button>
           </div>
         </div>
 
-        {/* Search */}
-        <div style={{ marginBottom: 14 }}>
-          <input
-            className="search-box"
-            placeholder="🔍  Cari nama karyawan..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        {/* Search + Sort */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+          <input className="search-box" placeholder="🔍  Cari nama karyawan..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, color: "#4a4f6a", letterSpacing: "0.5px" }}>URUTKAN:</span>
+            <SortBtn colKey="sick" label="Sakit" color="#f87171" />
+            <SortBtn colKey="leave" label="Cuti" color="#60a5fa" />
+            {sortKey && <button className="reset-btn" onClick={() => { setSortKey(null); setSortDir("desc"); }}>reset</button>}
+          </div>
         </div>
 
+        {sortKey && (
+          <div style={{ marginBottom: 10, fontSize: 11, color: "#4a4f6a" }}>
+            Diurutkan by{" "}
+            <span style={{ color: sortKey === "sick" ? "#f87171" : "#60a5fa" }}>
+              hari {sortKey === "sick" ? "sakit" : "cuti"}
+            </span>{" "}
+            · {sortDir === "desc" ? "terbanyak → terkecil" : "terkecil → terbanyak"}
+          </div>
+        )}
+
         {/* Table header */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 85px 85px 1fr 1fr",
-            gap: 10,
-            padding: "5px 14px",
-            color: "#4a4f6a",
-            fontSize: 10,
-            letterSpacing: "0.8px",
-            marginBottom: 6,
-          }}
-        >
-          <span>NAMA</span>
-          <span>SAKIT</span>
-          <span>CUTI</span>
-          <span>TGL SAKIT</span>
-          <span>TGL CUTI</span>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 85px 85px 1fr 1fr", gap: 10, padding: "5px 14px", color: "#4a4f6a", fontSize: 10, letterSpacing: "0.8px", marginBottom: 6 }}>
+          <span>NAMA</span><span>SAKIT</span><span>CUTI</span><span>TGL SAKIT</span><span>TGL CUTI</span>
         </div>
 
         {/* Rows */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {filtered.length === 0 ? (
-            <div
-              style={{
-                color: "#4a4f6a",
-                textAlign: "center",
-                padding: 36,
-                fontSize: 13,
-              }}
-            >
-              Tidak ada data ditemukan
-            </div>
+            <div style={{ color: "#4a4f6a", textAlign: "center", padding: 36, fontSize: 13 }}>Tidak ada data ditemukan</div>
           ) : (
             filtered.map((u) => {
               const isOpen = expandedUser === u.user;
               return (
-                <div
-                  key={u.user}
-                  className={`user-row${isOpen ? " open" : ""}`}
-                  onClick={() => setExpandedUser(isOpen ? null : u.user)}
-                >
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "2fr 85px 85px 1fr 1fr",
-                      gap: 10,
-                      padding: "13px 14px",
-                      alignItems: "start",
-                    }}
-                  >
+                <div key={u.user} className={`user-row${isOpen ? " open" : ""}`} onClick={() => setExpandedUser(isOpen ? null : u.user)}>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 85px 85px 1fr 1fr", gap: 10, padding: "13px 14px", alignItems: "start" }}>
                     <div>
-                      <div
-                        style={{
-                          fontFamily: "'Syne',sans-serif",
-                          fontWeight: 700,
-                          fontSize: 13,
-                        }}
-                      >
-                        {u.user}
-                      </div>
-                      <div
-                        style={{ color: "#4a4f6a", fontSize: 10, marginTop: 1 }}
-                      >
-                        {isOpen ? "▲ tutup" : "▼ detail"}
-                      </div>
+                      <div style={{ fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 13 }}>{u.user}</div>
+                      <div style={{ color: "#4a4f6a", fontSize: 10, marginTop: 1 }}>{isOpen ? "▲ tutup" : "▼ detail"}</div>
                     </div>
-                    <div>
-                      <span className="badge badge-sick">
-                        {u.sick.length} hari
-                      </span>
+                    <div><span className="badge badge-sick">{u.sick.length} hari</span></div>
+                    <div><span className="badge badge-leave">{u.leave.length} hari</span></div>
+                    <div style={{ fontSize: 11, color: "#fca5a5", lineHeight: 1.9 }}>
+                      {u.sick.length === 0 ? <span style={{ color: "#2a2d3a" }}>—</span>
+                        : isOpen ? u.sick.map((d, i) => <span key={i} className="date-chip chip-sick">{d}</span>)
+                        : <span>{u.sick.slice(0, 2).join(", ")}{u.sick.length > 2 ? ` +${u.sick.length - 2} lagi` : ""}</span>}
                     </div>
-                    <div>
-                      <span className="badge badge-leave">
-                        {u.leave.length} hari
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "#fca5a5",
-                        lineHeight: 1.9,
-                      }}
-                    >
-                      {u.sick.length === 0 ? (
-                        <span style={{ color: "#2a2d3a" }}>—</span>
-                      ) : isOpen ? (
-                        u.sick.map((d, i) => (
-                          <span key={i} className="date-chip chip-sick">
-                            {d}
-                          </span>
-                        ))
-                      ) : (
-                        <span>
-                          {u.sick.slice(0, 2).join(", ")}
-                          {u.sick.length > 2
-                            ? ` +${u.sick.length - 2} lagi`
-                            : ""}
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "#93c5fd",
-                        lineHeight: 1.9,
-                      }}
-                    >
-                      {u.leave.length === 0 ? (
-                        <span style={{ color: "#2a2d3a" }}>—</span>
-                      ) : isOpen ? (
-                        u.leave.map((d, i) => (
-                          <span key={i} className="date-chip chip-leave">
-                            {d}
-                          </span>
-                        ))
-                      ) : (
-                        <span>
-                          {u.leave.slice(0, 2).join(", ")}
-                          {u.leave.length > 2
-                            ? ` +${u.leave.length - 2} lagi`
-                            : ""}
-                        </span>
-                      )}
+                    <div style={{ fontSize: 11, color: "#93c5fd", lineHeight: 1.9 }}>
+                      {u.leave.length === 0 ? <span style={{ color: "#2a2d3a" }}>—</span>
+                        : isOpen ? u.leave.map((d, i) => <span key={i} className="date-chip chip-leave">{d}</span>)
+                        : <span>{u.leave.slice(0, 2).join(", ")}{u.leave.length > 2 ? ` +${u.leave.length - 2} lagi` : ""}</span>}
                     </div>
                   </div>
                 </div>
@@ -460,17 +295,8 @@ export default function App() {
           )}
         </div>
 
-        <div
-          style={{
-            marginTop: 20,
-            color: "#252838",
-            fontSize: 10,
-            borderTop: "1px solid #161926",
-            paddingTop: 12,
-          }}
-        >
-          Deteksi otomatis: work_mode → "sakit/sick" = Sakit · "cuti/leave/izin"
-          = Cuti
+        <div style={{ marginTop: 20, color: "#252838", fontSize: 10, borderTop: "1px solid #161926", paddingTop: 12 }}>
+          Deteksi otomatis: work_mode → "sakit/sick" = Sakit · "cuti/leave/izin" = Cuti
         </div>
       </div>
     </div>
